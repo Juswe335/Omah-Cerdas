@@ -1,0 +1,137 @@
+#include "DHT.h"
+#include <ArduinoJson.h>
+#define DHTTYPE DHT11
+#define DHTPIN 0
+
+#include <Arduino.h>
+#if defined(ESP32)
+  #include <WiFi.h>
+#elif defined(ESP8266)
+  #include <ESP8266WiFi.h>
+#endif
+#include <Firebase_ESP_Client.h>
+
+// Define pin numbers for the RGB LED and switch
+#define RED_PIN 16
+#define GREEN_PIN 4
+#define BLUE_PIN 2
+#define SWITCH_PIN 12
+
+DHT dht(DHTPIN, DHTTYPE);
+
+// Provide the token generation process info.
+#include "addons/TokenHelper.h"
+// Provide the RTDB payload printing info and other helper functions.
+#include "addons/RTDBHelper.h"
+
+// Insert your network credentials
+#define WIFI_SSID "FarrelNaja"
+#define WIFI_PASSWORD "Farrel123"
+
+// Insert Firebase project API Key
+#define API_KEY "AIzaSyBK_SPmVp_ZZczcNIW1NDmgnRGjMKNmDlc"
+
+// Insert RTDB URL
+#define DATABASE_URL "https://project-embedded-80e0f-default-rtdb.asia-southeast1.firebasedatabase.app/" 
+
+// Define Firebase Data object
+FirebaseData fbdo;
+
+FirebaseAuth auth;
+FirebaseConfig config;
+
+bool signupOK = false;
+
+void setup(){
+  pinMode(DHTPIN, INPUT);
+  dht.begin();
+  Serial.begin(115200);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting to Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED){
+    Serial.print(".");
+    delay(300);
+  }
+  Serial.println();
+  Serial.print("Connected with IP: ");
+  Serial.println(WiFi.localIP());
+  Serial.println();
+
+  // Assign the api key (required)
+  config.api_key = API_KEY;
+
+  // Assign the RTDB URL (required)
+  config.database_url = DATABASE_URL;
+
+  // Sign up
+  if (Firebase.signUp(&config, &auth, "", "")){
+    Serial.println("ok");
+    signupOK = true;
+  }
+  else{
+    Serial.printf("%s\n", config.signer.signupError.message.c_str());
+  }
+
+  // Assign the callback function for the long running token generation task
+  config.token_status_callback = tokenStatusCallback; // see addons/TokenHelper.h
+  
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+
+  // Initialize RGB LED pins
+  pinMode(RED_PIN, OUTPUT);
+  pinMode(GREEN_PIN, OUTPUT);
+  pinMode(BLUE_PIN, OUTPUT);
+  pinMode(SWITCH_PIN, INPUT_PULLUP); // Assuming active-low switch
+
+  // Turn off RGB LED initially
+  digitalWrite(RED_PIN, LOW);
+  digitalWrite(GREEN_PIN, LOW);
+  digitalWrite(BLUE_PIN, LOW);
+}
+
+void loop(){
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+
+  Serial.print("Temp: ");
+  Serial.print(t);
+  Serial.println("C");
+  Serial.print("Hum: ");
+  Serial.print(h);
+  Serial.println("%");
+  delay(2000);
+
+  if (Firebase.ready() && signupOK ) {
+    if (Firebase.RTDB.setFloat(&fbdo, "DHT/kelembapan", h)) {
+      Serial.print("Kelembapan: ");
+      Serial.println(h);
+    } else {
+      Serial.println("FAILED");
+      Serial.println("REASON: " + fbdo.errorReason());
+    }
+
+    if (Firebase.RTDB.setFloat(&fbdo, "DHT/suhu", t)) {
+      Serial.print("Suhu: ");
+      Serial.println(t);
+    } else {
+      Serial.println("FAILED");
+      Serial.println("REASON: " + fbdo.errorReason());
+    }
+  }
+  Serial.println("______________________________");
+  delay(1000); // Add a delay to prevent the loop from running too fast
+
+  // Control RGB LED based on switch state
+  if (digitalRead(SWITCH_PIN) == LOW) { // If switch is pressed
+    // Example: Turn LED red
+    digitalWrite(RED_PIN, HIGH);
+    digitalWrite(GREEN_PIN, LOW);
+    digitalWrite(BLUE_PIN, LOW);
+  } else {
+    // Turn off LED
+    digitalWrite(RED_PIN, LOW);
+    digitalWrite(GREEN_PIN, LOW);
+    digitalWrite(BLUE_PIN, LOW);
+  }
+}
